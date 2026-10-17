@@ -301,6 +301,45 @@ static void PostFx_PushModernLook() {
     gfx_set_custom_uniform(9, grade);
 }
 
+// Emits a compact effect-status line whenever the configuration changes (and
+// periodically while it stays constant) so a play log records what every
+// enhancement is actually doing: engine lighting, modern grade, and which
+// screen-space passes are registered.
+static void PostFx_LogStatus() {
+    static int sFrame = 0;
+    static int sLastSig = -2;
+    sFrame++;
+
+    const int engineLighting = CVarGetInteger(POSTFX_ENGINE_LIGHTING_CVAR, 0) != 0 ? 1 : 0;
+    const int modernLook = CVarGetInteger(POSTFX_MODERN_CVAR, 1) != 0 ? 1 : 0;
+    const int master = CVarGetInteger(POSTFX_MASTER_CVAR, 0) != 0 ? 1 : 0;
+    const int debug = CVarGetInteger(POSTFX_DEBUG_CVAR, 0);
+    const int sunraysCvar = CVarGetInteger(POSTFX_SUNRAYS_CVAR, 0) != 0 ? 1 : 0;
+    const int bloomCvar = CVarGetInteger(POSTFX_GLOW_CVAR, 1) != 0 ? 1 : 0;
+    const int outlineCvar = CVarGetInteger(POSTFX_OUTLINE_CVAR, 0) != 0 ? 1 : 0;
+
+    const int sig = engineLighting | (modernLook << 1) | (master << 2) | (debug << 3) | (sunraysCvar << 8) |
+                    (bloomCvar << 9) | (outlineCvar << 10) | ((gColorAdjustHandle >= 0 ? 1 : 0) << 12) |
+                    ((gSunraysHandle >= 0 ? 1 : 0) << 13) | ((gGlowHandle >= 0 ? 1 : 0) << 14) |
+                    ((gOutlineHandle >= 0 ? 1 : 0) << 15) | ((gDebugHandle >= 0 ? 1 : 0) << 16);
+
+    if (sig == sLastSig && (sFrame % 600) != 0) {
+        return;
+    }
+    sLastSig = sig;
+
+    SPDLOG_INFO(
+        "[PostFx] status engineLighting={}(wrap={:.2f} ground={:.2f} boost={:.2f}) "
+        "modernLook={}(sat={:.2f} con={:.2f} bri={:.2f}) postMaster={} sunraysCvar={} bloomCvar={} outlineCvar={} "
+        "debug={} | activePasses grade={} sunrays={} glow={} outline={} debug={}",
+        engineLighting, CVarGetFloat(POSTFX_ENGINE_LIGHTING_WRAP_CVAR, 0.5f),
+        CVarGetFloat(POSTFX_ENGINE_LIGHTING_GROUND_CVAR, 0.45f),
+        CVarGetFloat(POSTFX_ENGINE_LIGHTING_BOOST_CVAR, 1.1f), modernLook,
+        CVarGetFloat(POSTFX_MODERN_SAT_CVAR, 1.2f), CVarGetFloat(POSTFX_MODERN_CON_CVAR, 1.08f),
+        CVarGetFloat(POSTFX_MODERN_BRI_CVAR, 1.0f), master, sunraysCvar, bloomCvar, outlineCvar, debug,
+        gColorAdjustHandle, gSunraysHandle, gGlowHandle, gOutlineHandle, gDebugHandle);
+}
+
 static void PostFx_FrameUpdate() {
     // Independent of post-processing: the engine lighting and modern grade simply
     // need per-frame values latched in the shader uniforms.
@@ -334,6 +373,7 @@ static void PostFx_FrameUpdate() {
     if (debugMode > 0) {
         PostFx_ReconcilePasses(false, false, false, false, debugMode);
         PostFx_PushUniforms();
+        PostFx_LogStatus();
         return;
     }
 
@@ -344,6 +384,7 @@ static void PostFx_FrameUpdate() {
 
     PostFx_ReconcilePasses(wantColorAdjust, wantSunrays, wantGlow, wantOutline, 0);
     PostFx_PushUniforms();
+    PostFx_LogStatus();
 }
 
 void register_postfx_hooks(void) {
